@@ -49,7 +49,8 @@ class ImmichImage extends StatelessWidget {
                 ));
         },
         errorBuilder: (context, error, stackTrace) {
-          debugPrint("Error getting thumb for assetId=${asset.id}: $error");
+          debugPrint(
+              "Error getting thumb for assetId=${asset.localId}: $error");
           return Icon(
             Icons.image_not_supported_outlined,
             color: Theme.of(context).primaryColor,

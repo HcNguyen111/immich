@@ -1,31 +1,49 @@
 import 'dart:collection';
 
-import 'package:hive/hive.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:immich_mobile/constants/hive_box.dart';
-import 'package:immich_mobile/modules/home/services/asset.service.dart';
-import 'package:immich_mobile/modules/home/services/asset_cache.service.dart';
+import 'package:immich_mobile/shared/services/asset.service.dart';
 import 'package:immich_mobile/shared/models/asset.dart';
+import 'package:immich_mobile/shared/models/user.dart';
+import 'package:immich_mobile/shared/providers/db.provider.dart';
 import 'package:immich_mobile/shared/services/device_info.service.dart';
 import 'package:collection/collection.dart';
-import 'package:immich_mobile/utils/tuple.dart';
+import 'package:immich_mobile/shared/services/user.service.dart';
 import 'package:intl/intl.dart';
+import 'package:isar/isar.dart';
 import 'package:logging/logging.dart';
 import 'package:openapi/api.dart';
 import 'package:photo_manager/photo_manager.dart';
 
 class AssetNotifier extends StateNotifier<List<Asset>> {
   final AssetService _assetService;
-  final AssetCacheService _assetCacheService;
+  final UserService _userService;
+  final Isar _db;
   final log = Logger('AssetNotifier');
   final DeviceInfoService _deviceInfoService = DeviceInfoService();
   bool _getAllAssetInProgress = false;
   bool _deleteInProgress = false;
 
-  AssetNotifier(this._assetService, this._assetCacheService) : super([]);
+  AssetNotifier(this._assetService, this._userService, this._db) : super([]);
 
-  _cacheState() {
-    _assetCacheService.put(state);
+  Future<void> _fetchAllUsers() async {
+    final dtos = await _userService.getAllUsersInfo(isAll: true);
+    if (dtos == null) {
+      return;
+    }
+    final HashSet<String> existingUsers = HashSet.from(
+      await _db.users.where().idProperty().findAll(),
+    );
+    final HashSet<String> currentUsers = HashSet.from(
+      dtos.map((e) => e.id),
+    );
+    final List<String> deletedUsers =
+        existingUsers.difference(currentUsers).toList(growable: false);
+    final users = dtos.map((e) => User.fromDto(e)).toList(growable: false);
+    await _db.writeTxn(() async {
+      // note: cannot clearAll and putAll because this invalidates the links from Asset/Ablum to User
+      await _db.users.deleteAllById(deletedUsers);
+      await _db.users.putAll(users);
+    });
   }
 
   getAllAsset() async {
@@ -36,92 +54,68 @@ class AssetNotifier extends StateNotifier<List<Asset>> {
     final stopwatch = Stopwatch();
     try {
       _getAllAssetInProgress = true;
-      final bool isCacheValid = await _assetCacheService.isValid();
+      // await clearAllAsset();
+      await _fetchAllUsers();
+      final int cachedCount = await _db.assets.count();
       stopwatch.start();
-      final Box box = Hive.box(userInfoBox);
-      final localTask = _assetService.getLocalAssets(urgent: !isCacheValid);
-      final remoteTask = _assetService.getRemoteAssets(
-        etag: isCacheValid ? box.get(assetEtagKey) : null,
-      );
-      if (isCacheValid && state.isEmpty) {
-        state = await _assetCacheService.get();
+      // final bool isCacheValid = await _assetCacheService.isValid();
+      final localTask = _assetService.fetchLocalAssets();
+      final remoteTask = _assetService.fetchRemoteAssets();
+      if (cachedCount > 0 && state.isEmpty || cachedCount != state.length) {
+        // state = await _assetCacheService.get();
+        state = await _db.assets.where().findAll();
         log.info(
           "Reading assets from cache: ${stopwatch.elapsedMilliseconds}ms",
         );
         stopwatch.reset();
       }
-
-      int remoteBegin = state.indexWhere((a) => a.isRemote);
-      remoteBegin = remoteBegin == -1 ? state.length : remoteBegin;
-      final List<Asset> currentLocal = state.slice(0, remoteBegin);
-      final Pair<List<Asset>?, String?> remoteResult = await remoteTask;
-      List<Asset>? newRemote = remoteResult.first;
-      List<Asset>? newLocal = await localTask;
+      final bool newRemote = await remoteTask;
+      final bool newLocal = await localTask;
       log.info("Load assets: ${stopwatch.elapsedMilliseconds}ms");
       stopwatch.reset();
-      if (newRemote == null &&
-          (newLocal == null || currentLocal.equals(newLocal))) {
+      if (!newRemote && !newLocal) {
         log.info("state is already up-to-date");
         return;
       }
-      newRemote ??= state.slice(remoteBegin);
-      newLocal ??= [];
-      state = _combineLocalAndRemoteAssets(local: newLocal, remote: newRemote);
-      log.info("Combining assets: ${stopwatch.elapsedMilliseconds}ms");
-
       stopwatch.reset();
-      _cacheState();
-      box.put(assetEtagKey, remoteResult.second);
-      log.info("Store assets in cache: ${stopwatch.elapsedMilliseconds}ms");
+      final assets = await _db.assets.where().findAll();
+      log.info("setting new asset state");
+      state = assets;
     } finally {
       _getAllAssetInProgress = false;
     }
   }
 
-  List<Asset> _combineLocalAndRemoteAssets({
-    required Iterable<Asset> local,
-    required List<Asset> remote,
-  }) {
-    final List<Asset> assets = [];
-    if (remote.isNotEmpty && local.isNotEmpty) {
-      final String deviceId = Hive.box(userInfoBox).get(deviceIdKey);
-      final Set<String> existingIds = remote
-          .where((e) => e.deviceId == deviceId)
-          .map((e) => e.deviceAssetId)
-          .toSet();
-      local = local.where((e) => !existingIds.contains(e.id));
-    }
-    assets.addAll(local);
-    // the order (first all local, then remote assets) is important!
-    assets.addAll(remote);
-    return assets;
-  }
-
-  clearAllAsset() {
+  Future<void> clearAllAsset() {
     state = [];
-    _cacheState();
+    // _cacheState();
+    return _db.writeTxn(() async => _db.assets.clear());
   }
 
-  onNewAssetUploaded(AssetResponseDto newAsset) {
+  Future<void> onNewAssetUploaded(AssetResponseDto newAsset) {
     final int i = state.indexWhere(
       (a) =>
           a.isRemote ||
-          (a.id == newAsset.deviceAssetId && a.deviceId == newAsset.deviceId),
+          (a.localId == newAsset.deviceAssetId &&
+              a.deviceId == newAsset.deviceId),
     );
 
+    final Asset a = Asset.remote(newAsset);
     if (i == -1 || state[i].deviceAssetId != newAsset.deviceAssetId) {
-      state = [...state, Asset.remote(newAsset)];
+      state = [...state, a];
     } else {
       // order is important to keep all local-only assets at the beginning!
       state = [
         ...state.slice(0, i),
         ...state.slice(i + 1),
-        Asset.remote(newAsset),
+        a,
       ];
+      _db.assets.put(a);
       // TODO here is a place to unify local/remote assets by replacing the
       // local-only asset in the state with a local&remote asset
     }
-    _cacheState();
+    return _db.writeTxn(() async => await _db.assets.put(a));
+    // _cacheState();
   }
 
   deleteAssets(Set<Asset> deleteAssets) async {
@@ -133,8 +127,16 @@ class AssetNotifier extends StateNotifier<List<Asset>> {
       deleted.addAll(localDeleted);
       deleted.addAll(remoteDeleted);
       if (deleted.isNotEmpty) {
-        state = state.where((a) => !deleted.contains(a.id)).toList();
-        _cacheState();
+        state = state
+            .where(
+              (a) => !deleted.contains(a.isLocal ? a.localId! : a.remoteId!),
+            )
+            .toList();
+        await _db.writeTxn(() async {
+          await _db.assets.deleteAllByLocalId(localDeleted);
+          await _db.assets.deleteAllByRemoteId(remoteDeleted);
+        });
+        // _cacheState();
       }
     } finally {
       _deleteInProgress = false;
@@ -148,7 +150,7 @@ class AssetNotifier extends StateNotifier<List<Asset>> {
     // Delete asset from device
     for (final Asset asset in assetsToDelete) {
       if (asset.isLocal) {
-        local.add(asset.id);
+        local.add(asset.localId!);
       } else if (asset.deviceId == deviceId) {
         // Delete asset on device if it is still present
         var localAsset = await AssetEntity.fromId(asset.deviceAssetId);
@@ -167,7 +169,7 @@ class AssetNotifier extends StateNotifier<List<Asset>> {
     return [];
   }
 
-  Future<Iterable<String>> _deleteRemoteAssets(
+  Future<List<String>> _deleteRemoteAssets(
     Set<Asset> assetsToDelete,
   ) async {
     final Iterable<AssetResponseDto> remote =
@@ -176,14 +178,16 @@ class AssetNotifier extends StateNotifier<List<Asset>> {
         await _assetService.deleteAssets(remote) ?? [];
     return deleteAssetResult
         .where((a) => a.status == DeleteAssetStatus.SUCCESS)
-        .map((a) => a.id);
+        .map((a) => a.id)
+        .toList(growable: false);
   }
 }
 
 final assetProvider = StateNotifierProvider<AssetNotifier, List<Asset>>((ref) {
   return AssetNotifier(
     ref.watch(assetServiceProvider),
-    ref.watch(assetCacheServiceProvider),
+    ref.watch(userServiceProvider),
+    ref.watch(dbProvider),
   );
 });
 

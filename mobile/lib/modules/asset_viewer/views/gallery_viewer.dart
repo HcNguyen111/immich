@@ -10,7 +10,7 @@ import 'package:immich_mobile/modules/asset_viewer/ui/exif_bottom_sheet.dart';
 import 'package:immich_mobile/modules/asset_viewer/ui/top_control_app_bar.dart';
 import 'package:immich_mobile/modules/asset_viewer/views/image_viewer_page.dart';
 import 'package:immich_mobile/modules/asset_viewer/views/video_viewer_page.dart';
-import 'package:immich_mobile/modules/home/services/asset.service.dart';
+import 'package:immich_mobile/shared/services/asset.service.dart';
 import 'package:immich_mobile/modules/settings/providers/app_settings.provider.dart';
 import 'package:immich_mobile/modules/settings/services/app_settings.service.dart';
 import 'package:immich_mobile/shared/models/asset.dart';
@@ -56,9 +56,10 @@ class GalleryViewerPage extends HookConsumerWidget {
 
     getAssetExif() async {
       if (assetList[indexOfAsset.value].isRemote) {
+        // TODO this is useless, exifInfo is no longer part of Asset
         assetDetail = await ref
             .watch(assetServiceProvider)
-            .getAssetById(assetList[indexOfAsset.value].id);
+            .getAssetById(assetList[indexOfAsset.value].remoteId!);
       } else {
         // TODO local exif parsing?
         assetDetail = assetList[indexOfAsset.value];
@@ -142,7 +143,6 @@ class GalleryViewerPage extends HookConsumerWidget {
                   isZoomedFunction: isZoomedMethod,
                   isZoomedListener: isZoomedListener,
                   asset: assetList[index],
-                  heroTag: assetList[index].id,
                   loadPreview: isLoadPreview.value,
                   loadOriginal: isLoadOriginal.value,
                 );

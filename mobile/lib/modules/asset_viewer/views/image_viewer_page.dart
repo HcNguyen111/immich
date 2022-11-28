@@ -6,13 +6,12 @@ import 'package:immich_mobile/modules/asset_viewer/models/image_viewer_page_stat
 import 'package:immich_mobile/modules/asset_viewer/providers/image_viewer_page_state.provider.dart';
 import 'package:immich_mobile/modules/asset_viewer/ui/exif_bottom_sheet.dart';
 import 'package:immich_mobile/modules/asset_viewer/ui/remote_photo_view.dart';
-import 'package:immich_mobile/modules/home/services/asset.service.dart';
+import 'package:immich_mobile/shared/services/asset.service.dart';
 import 'package:immich_mobile/shared/models/asset.dart';
 import 'package:immich_mobile/shared/ui/immich_loading_indicator.dart';
 
 // ignore: must_be_immutable
 class ImageViewerPage extends HookConsumerWidget {
-  final String heroTag;
   final Asset asset;
   final String authToken;
   final ValueNotifier<bool> isZoomedListener;
@@ -22,7 +21,6 @@ class ImageViewerPage extends HookConsumerWidget {
 
   ImageViewerPage({
     Key? key,
-    required this.heroTag,
     required this.asset,
     required this.authToken,
     required this.isZoomedFunction,
@@ -40,8 +38,9 @@ class ImageViewerPage extends HookConsumerWidget {
 
     getAssetExif() async {
       if (asset.isRemote) {
+        // TODO this is useless as Asset no longer stored exifInfo
         assetDetail =
-            await ref.watch(assetServiceProvider).getAssetById(asset.id);
+            await ref.watch(assetServiceProvider).getAssetById(asset.remoteId!);
       } else {
         // TODO local exif parsing?
         assetDetail = asset;
@@ -72,7 +71,7 @@ class ImageViewerPage extends HookConsumerWidget {
       children: [
         Center(
           child: Hero(
-            tag: heroTag,
+            tag: asset.id,
             child: RemotePhotoView(
               asset: asset,
               authToken: authToken,

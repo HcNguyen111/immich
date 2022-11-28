@@ -1,4 +1,5 @@
 import 'package:hive/hive.dart';
+import 'package:immich_mobile/shared/models/album.dart';
 import 'package:openapi/api.dart';
 
 import '../constants/hive_box.dart';
@@ -24,23 +25,25 @@ String _getThumbnailCacheKey(final String id, final ThumbnailFormat type) {
 }
 
 String getAlbumThumbnailUrl(
-  final AlbumResponseDto album, {
+  final Album album, {
   ThumbnailFormat type = ThumbnailFormat.WEBP,
 }) {
-  if (album.albumThumbnailAssetId == null) {
+  if (album.albumThumbnailAsset.value == null) {
     return '';
   }
-  return _getThumbnailUrl(album.albumThumbnailAssetId!, type: type);
+  return _getThumbnailUrl(album.albumThumbnailAsset.value!.remoteId!,
+      type: type);
 }
 
 String getAlbumThumbNailCacheKey(
-  final AlbumResponseDto album, {
+  final Album album, {
   ThumbnailFormat type = ThumbnailFormat.WEBP,
 }) {
-  if (album.albumThumbnailAssetId == null) {
+  if (album.albumThumbnailAsset.value == null) {
     return '';
   }
-  return _getThumbnailCacheKey(album.albumThumbnailAssetId!, type);
+  return _getThumbnailCacheKey(
+      album.albumThumbnailAsset.value!.remoteId!, type);
 }
 
 String getImageUrl(final AssetResponseDto asset) {

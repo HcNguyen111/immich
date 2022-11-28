@@ -5,16 +5,16 @@ import 'package:hive/hive.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/hive_box.dart';
 import 'package:immich_mobile/modules/home/ui/delete_diaglog.dart';
+import 'package:immich_mobile/shared/models/album.dart';
 import 'package:immich_mobile/utils/image_url_builder.dart';
-import 'package:openapi/api.dart';
 
 class ControlBottomAppBar extends ConsumerWidget {
   final Function onShare;
   final Function onDelete;
-  final Function(AlbumResponseDto album) onAddToAlbum;
+  final Function(Album album) onAddToAlbum;
   final void Function() onCreateNewAlbum;
 
-  final List<AlbumResponseDto> albums;
+  final List<Album> albums;
 
   const ControlBottomAppBar({
     Key? key,
@@ -56,7 +56,7 @@ class ControlBottomAppBar extends ConsumerWidget {
     }
 
     Widget renderAlbums() {
-      Widget renderAlbum(AlbumResponseDto album) {
+      Widget renderAlbum(Album album) {
         final box = Hive.box(userInfoBox);
 
         return Padding(
@@ -85,7 +85,7 @@ class ControlBottomAppBar extends ConsumerWidget {
                   Padding(
                     padding: const EdgeInsets.only(top: 12),
                     child: Text(
-                      album.albumName,
+                      album.name,
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 12.0,

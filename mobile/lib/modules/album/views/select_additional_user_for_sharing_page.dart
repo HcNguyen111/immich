@@ -4,11 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/modules/album/providers/suggested_shared_users.provider.dart';
+import 'package:immich_mobile/shared/models/album.dart';
 import 'package:immich_mobile/shared/ui/immich_loading_indicator.dart';
 import 'package:openapi/api.dart';
 
 class SelectAdditionalUserForSharingPage extends HookConsumerWidget {
-  final AlbumResponseDto albumInfo;
+  final Album albumInfo;
 
   const SelectAdditionalUserForSharingPage({Key? key, required this.albumInfo})
       : super(key: key);
@@ -143,7 +144,8 @@ class SelectAdditionalUserForSharingPage extends HookConsumerWidget {
         data: (users) {
           for (var sharedUsers in albumInfo.sharedUsers) {
             users.removeWhere(
-              (u) => u.id == sharedUsers.id || u.id == albumInfo.ownerId,
+              (u) =>
+                  u.id == sharedUsers.id || u.id == albumInfo.owner.value!.id,
             );
           }
 
